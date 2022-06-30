@@ -33,6 +33,7 @@
  */
 
 #include <assert.h>
+#include <dirent.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -40,6 +41,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 namespace vpic {
 // Information on a given grid of a VPIC simulation
@@ -300,18 +303,20 @@ Reader::~Reader() {
 
 class PostProcessor {
  public:
-  explicit PostProcessor(const std::string& filename);
+  PostProcessor(const std::string& in, const std::string& out);
   ~PostProcessor();
 
   void Open();
   void Prepare();
   void RewriteParticles();
+  int nparticles() const { return nparticles_; }
 
  private:
   Header particle_header_;
   const std::string particle_file_;
   Reader* particle_;
   Reader* particle_id_;
+  const std::string outputname_;
   FILE* output_;
   int nparticles_;
 };
@@ -325,10 +330,11 @@ inline void Encode(FILE* file, const T& result) {
   }
 }
 
-PostProcessor::PostProcessor(const std::string& filename)
-    : particle_file_(filename),
-      particle_(new Reader(filename)),
-      particle_id_(new Reader(filename)),
+PostProcessor::PostProcessor(const std::string& in, const std::string& out)
+    : particle_file_(in),
+      particle_(new Reader(in)),
+      particle_id_(new Reader(in)),
+      outputname_(out),
       output_(NULL),
       nparticles_(0) {}
 
@@ -338,11 +344,10 @@ void PostProcessor::Open() {
   if (output_) {
     return;
   }
-  std::string filename = particle_file_ + ".bin";
-  output_ = fopen(filename.c_str(), "w");  // Discard existing data
+  output_ = fopen(outputname_.c_str(), "w");  // Discard existing data
   if (!output_) {
-    fprintf(stderr, "Fail to open file for writing %s: %s\n", filename.c_str(),
-            strerror(errno));
+    fprintf(stderr, "Fail to open file for writing %s: %s\n",
+            outputname_.c_str(), strerror(errno));
     exit(EXIT_FAILURE);
   }
 }
@@ -395,10 +400,66 @@ PostProcessor::~PostProcessor() {
 
 }  // namespace vpic
 
-int main(int argc, char* argv[]) {
-  vpic::PostProcessor pp(argv[1]);
+void process_file(const char* in, const char* out) {
+  std::string tmp;
+  if (!out) {
+    tmp = in;
+    tmp += ".bin";
+    out = tmp.c_str();
+  }
+  vpic::PostProcessor pp(in, out);
   pp.Open();
   pp.Prepare();
   pp.RewriteParticles();
-  return 0;  //
+  printf("<< %s\n>> %s (%d particles processed)\n", in, out, pp.nparticles());
+}
+
+void process_dir(const char* inputdir, const char* outputdir) {
+  DIR* const dir = opendir(inputdir);
+  if (!dir) {
+    fprintf(stderr, "Fail to open dir %s: %s\n", inputdir, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  std::string tmpsrc = inputdir, tmpdst = outputdir;
+  size_t tmpsrc_prefix = tmpsrc.length(), tmpdst_prefix = tmpdst.length();
+  struct dirent* entry = readdir(dir);
+  while (entry) {
+    if (entry->d_type == DT_REG && strcmp(entry->d_name, ".") != 0 &&
+        strcmp(entry->d_name, "..") != 0) {
+      tmpsrc.resize(tmpsrc_prefix);
+      tmpsrc += "/";
+      tmpsrc += entry->d_name;
+      tmpdst.resize(tmpdst_prefix);
+      tmpdst += "/";
+      tmpdst += entry->d_name;
+      tmpdst += ".bin";
+      process_file(tmpsrc.c_str(), tmpdst.c_str());
+    }
+    entry = readdir(dir);
+  }
+  closedir(dir);
+}
+
+int main(int argc, char* argv[]) {
+  if (argc < 2) {
+    abort();
+  }
+  struct stat filestat;
+  int r = ::stat(argv[1], &filestat);
+  if (r != 0) {
+    fprintf(stderr, "Fail to stat file %s: %s\n", argv[1], strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  if (S_ISREG(filestat.st_mode)) {
+    process_file(argv[1], NULL);
+  } else if (S_ISDIR(filestat.st_mode)) {
+    if (argc < 3) {
+      abort();
+    }
+    process_dir(argv[1], argv[2]);
+  } else {
+    fprintf(stderr, "Unexpected file type: %s\n", argv[1]);
+    exit(EXIT_FAILURE);
+  }
+  return 0;
 }
