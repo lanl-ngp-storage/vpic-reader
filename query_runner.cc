@@ -189,6 +189,7 @@ int QueryProcessor::GetTrajectory(uint64_t target, int first_step,
   const size_t prefix_len = filename.length();
   memset(&stat_, 0, sizeof(QueryStat));
   trajectory_.resize(0);
+  uint64_t prev = stat_.particles_fetched;
   for (int step = first_step; step <= last_step; step += interval) {
     for (int i = 0; i < nproc_; i++) {
       char tmp[100];
@@ -200,8 +201,10 @@ int QueryProcessor::GetTrajectory(uint64_t target, int first_step,
       Particle part;
       if (searcher.Lookup(target, &part, &stat_)) {
         trajectory_.push_back(std::make_pair(step, part));
-        printf("step=%d, id=%lld, x=%f, y=%f, z=%f\n", step, part.id, part.x,
-               part.y, part.z);
+        printf("step=%d, id=%d, x=%f, y=%f, z=%f, particles=%d\n", step,
+               int(part.id), part.x, part.y, part.z,
+               int(stat_.particles_fetched - prev));
+        prev = stat_.particles_fetched;
       }
     }
   }
