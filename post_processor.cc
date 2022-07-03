@@ -31,6 +31,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include "pthread_helper.h"
 
 #include <assert.h>
 #include <dirent.h>
@@ -44,6 +45,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <vector>
 
 namespace vpic {
 // Information on a given grid of a VPIC simulation
@@ -403,6 +405,90 @@ PostProcessor::~PostProcessor() {
   }
 }
 
+class JobScheduler {
+ public:
+  explicit JobScheduler(int j);
+  ~JobScheduler();
+  void AddTask(const std::string& in, const std::string& out);
+  void Wait();
+
+ private:
+  struct Task {
+    JobScheduler* parent;
+    std::string in, out;
+    int nparticles;
+  };
+  void ReapFinished();  // REQUIRES: mu_ must have been locked
+  static void RunJob(void*);
+  ThreadPool* const pool_;
+  // State below protected by cv_;
+  std::vector<Task*> finished_tasks_;
+  port::Mutex mu_;
+  port::CondVar cv_;
+  int bg_scheduled_;
+  int bg_completed_;
+};
+
+JobScheduler::JobScheduler(int j)
+    : pool_(new ThreadPool(j)), cv_(&mu_), bg_scheduled_(0), bg_completed_(0) {}
+
+void JobScheduler::ReapFinished() {
+  if (!finished_tasks_.empty()) {
+    for (size_t i = 0; i < finished_tasks_.size(); i++) {
+      Task* const t = finished_tasks_[i];
+      printf("<< %s\n>> %s (%d particles processed)\n", t->in.c_str(),
+             t->out.c_str(), t->nparticles);
+      delete t;
+    }
+    finished_tasks_.resize(0);
+  }
+}
+
+void JobScheduler::Wait() {
+  MutexLock ml(&mu_);
+  while (bg_completed_ < bg_scheduled_) {
+    cv_.Wait();
+    ReapFinished();
+  }
+  ReapFinished();
+}
+
+void JobScheduler::AddTask(const std::string& in, const std::string& out) {
+  Task* const t = new Task;
+  t->parent = this;
+  t->in = in;
+  t->out = out;
+  t->nparticles = 0;
+  MutexLock ml(&mu_);
+  bg_scheduled_++;
+  pool_->Schedule(RunJob, t);
+}
+
+void JobScheduler::RunJob(void* arg) {
+  Task* t = static_cast<Task*>(arg);
+  vpic::PostProcessor pp(t->in, t->out);
+  pp.Open();
+  pp.Prepare();
+  pp.RewriteParticles();
+  t->nparticles = pp.nparticles();  // For subsequent status reporting
+  JobScheduler* const p = t->parent;
+  MutexLock ml(&p->mu_);
+  p->finished_tasks_.push_back(t);
+  p->bg_completed_++;
+  p->cv_.SignalAll();
+}
+
+JobScheduler::~JobScheduler() {
+  {
+    MutexLock ml(&mu_);
+    while (bg_completed_ < bg_scheduled_) {
+      cv_.Wait();
+    }
+    ReapFinished();
+  }
+  delete pool_;
+}
+
 }  // namespace vpic
 
 void process_file(const char* in, const char* out) {
@@ -420,9 +506,11 @@ void process_file(const char* in, const char* out) {
 }
 
 void process_dir(const char* inputdir, const char* outputdir) {
+  vpic::JobScheduler scheduler(4);
   DIR* const dir = opendir(inputdir);
   if (!dir) {
-    fprintf(stderr, "Fail to open dir %s: %s\n", inputdir, strerror(errno));
+    fprintf(stderr, "Fail to open input dir %s: %s\n", inputdir,
+            strerror(errno));
     exit(EXIT_FAILURE);
   }
   std::string tmpsrc = inputdir, tmpdst = outputdir;
@@ -438,11 +526,12 @@ void process_dir(const char* inputdir, const char* outputdir) {
       tmpdst += "/";
       tmpdst += entry->d_name;
       tmpdst += ".bin";
-      process_file(tmpsrc.c_str(), tmpdst.c_str());
+      scheduler.AddTask(tmpsrc, tmpdst);
     }
     entry = readdir(dir);
   }
   closedir(dir);
+  scheduler.Wait();
 }
 
 int main(int argc, char* argv[]) {
