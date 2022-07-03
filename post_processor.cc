@@ -35,6 +35,7 @@
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -385,7 +386,11 @@ void PostProcessor::RewriteParticles() {
     Encode(output_, particle.ux);
     Encode(output_, particle.uy);
     Encode(output_, particle.uz);
-    Encode(output_, particle.w);
+    // Calculate the kinetic energy value of each particle
+    double gam2 = 1.0 + particle.ux * particle.ux + particle.uy * particle.uy +
+                  particle.uz * particle.uz;
+    float ke = static_cast<float>(sqrt(gam2) - 1.0);
+    Encode(output_, ke);
   }
 }
 
