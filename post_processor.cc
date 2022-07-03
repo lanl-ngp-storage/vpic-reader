@@ -36,6 +36,7 @@
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
+#include <getopt.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -532,27 +533,56 @@ void process_dir(const char* inputdir, const char* outputdir) {
   }
   closedir(dir);
   scheduler.Wait();
+  printf("Done\n");
+}
+
+static void usage(char* argv0, const char* msg) {
+  if (msg) fprintf(stderr, "%s: %s\n\n", argv0, msg);
+  fprintf(stderr, "===============\n");
+  fprintf(stderr, "Usage: %s [options] input_path [output_path]\n\n", argv0);
+  fprintf(stderr, "-j\tjobs\t\t:  max concurrent jobs\n");
+  fprintf(stderr, "===============\n");
+  exit(EXIT_FAILURE);
 }
 
 int main(int argc, char* argv[]) {
-  if (argc < 2) {
-    abort();
+  char* const argv0 = argv[0];
+  int j = 4;
+  int c;
+
+  setlinebuf(stdout);
+  while ((c = getopt(argc, argv, "j:h")) != -1) {
+    switch (c) {
+      case 'j':
+        j = atoi(optarg);
+        if (j < 1) usage(argv0, "invalid max job count");
+        break;
+      case 'h':
+      default:
+        usage(argv0, NULL);
+        break;
+    }
   }
+
+  argc -= optind;
+  argv += optind;
+
+  if (argc < 1) usage(argv0, "must specify input file or dir path");
   struct stat filestat;
-  int r = ::stat(argv[1], &filestat);
+  int r = ::stat(argv[0], &filestat);
   if (r != 0) {
-    fprintf(stderr, "Fail to stat file %s: %s\n", argv[1], strerror(errno));
+    fprintf(stderr, "Fail to stat file %s: %s\n", argv[0], strerror(errno));
     exit(EXIT_FAILURE);
   }
   if (S_ISREG(filestat.st_mode)) {
-    process_file(argv[1], NULL);
+    process_file(argv[0], NULL);
   } else if (S_ISDIR(filestat.st_mode)) {
-    if (argc < 3) {
-      abort();
+    if (argc < 2) {
+      usage(argv0, "must specify output dir path");
     }
-    process_dir(argv[1], argv[2]);
+    process_dir(argv[0], argv[1]);
   } else {
-    fprintf(stderr, "Unexpected file type: %s\n", argv[1]);
+    fprintf(stderr, "Unexpected file type: %s\n", argv[0]);
     exit(EXIT_FAILURE);
   }
   return 0;
