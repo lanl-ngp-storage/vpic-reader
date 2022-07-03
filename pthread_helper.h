@@ -33,6 +33,7 @@
  */
 #pragma once
 
+#include <assert.h>
 #include <deque>
 #include <pthread.h>
 #include <stdio.h>
