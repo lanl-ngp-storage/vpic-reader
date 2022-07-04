@@ -506,8 +506,8 @@ void process_file(const char* in, const char* out) {
   printf("<< %s\n>> %s (%d particles processed)\n", in, out, pp.nparticles());
 }
 
-void process_dir(const char* inputdir, const char* outputdir) {
-  vpic::JobScheduler scheduler(4);
+void process_dir(const char* inputdir, const char* outputdir, int j) {
+  vpic::JobScheduler scheduler(j);
   DIR* const dir = opendir(inputdir);
   if (!dir) {
     fprintf(stderr, "Fail to open input dir %s: %s\n", inputdir,
@@ -580,7 +580,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
       usage(argv0, "must specify output dir path");
     }
-    process_dir(argv[0], argv[1]);
+    process_dir(argv[0], argv[1], j);
   } else {
     fprintf(stderr, "Unexpected file type: %s\n", argv[0]);
     exit(EXIT_FAILURE);
