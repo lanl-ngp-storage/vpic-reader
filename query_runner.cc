@@ -31,6 +31,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <matplot/matplot.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -55,7 +56,7 @@ struct QueryStat {
 struct Particle {
   Particle() {}  // Intentionally not initialized for performance
   uint64_t id;
-  float x, y, z, ux, uy, uz, w;
+  float x, y, z, ux, uy, uz, ke;
   int i;
 };
 
@@ -120,7 +121,7 @@ void Reader::NextParticle(Particle* particle, QueryStat* stat) {
   Decode(file_, &particle->ux);
   Decode(file_, &particle->uy);
   Decode(file_, &particle->uz);
-  Decode(file_, &particle->w);
+  Decode(file_, &particle->ke);
   stat->particles_fetched += 1;
   stat->bytes_read += 48;
 }
@@ -173,7 +174,12 @@ class QueryProcessor {
 
  private:
   QueryStat stat_;
-  std::vector<std::pair<int, Particle> > trajectory_;
+  std::vector<std::string> timestep_name_;
+  std::vector<double> timestep_;
+  std::vector<double> ke_;
+  std::vector<double> x_;
+  std::vector<double> y_;
+  std::vector<double> z_;
   const std::string particle_dir_;
   const std::string sp_name_;
   int nproc_;
@@ -185,10 +191,14 @@ QueryProcessor::QueryProcessor(const std::string& dir, const std::string& sp,
 
 int QueryProcessor::GetTrajectory(uint64_t target, int first_step,
                                   int last_step, int interval) {
+  memset(&stat_, 0, sizeof(QueryStat));
+  timestep_name_.resize(0);
+  timestep_.resize(0);
+  x_.resize(0);
+  y_.resize(0);
+  z_.resize(0);
   std::string filename = particle_dir_;
   const size_t prefix_len = filename.length();
-  memset(&stat_, 0, sizeof(QueryStat));
-  trajectory_.resize(0);
   uint64_t prev = stat_.particles_fetched;
   for (int step = first_step; step <= last_step; step += interval) {
     for (int i = 0; i < nproc_; i++) {
@@ -200,15 +210,37 @@ int QueryProcessor::GetTrajectory(uint64_t target, int first_step,
       Searcher searcher(filename);
       Particle part;
       if (searcher.Lookup(target, &part, &stat_)) {
-        trajectory_.push_back(std::make_pair(step, part));
-        printf("step=%d, id=%d, x=%f, y=%f, z=%f, particles=%d\n", step,
-               int(part.id), part.x, part.y, part.z,
+        sprintf(tmp, "step %d", step);
+        timestep_name_.push_back(tmp);
+        timestep_.push_back(step);
+        x_.push_back(part.x);
+        y_.push_back(part.y);
+        z_.push_back(part.z);
+        ke_.push_back(part.ke);
+        printf("step=%d, id=%d, x=%f, y=%f, z=%f, ke=%f, particles=%d\n", step,
+               int(part.id), part.x, part.y, part.z, part.ke,
                int(stat_.particles_fetched - prev));
         prev = stat_.particles_fetched;
       }
     }
   }
-  return trajectory_.size();
+  auto f = matplot::gcf(true);
+  f->size(1000, 500);
+  matplot::tiledlayout(1, 2);
+  auto ax1 = matplot::nexttile();
+  matplot::plot(ax1, timestep_, ke_, "-o")->line_width(1.5);
+  matplot::xlabel(ax1, "Timestep");
+  matplot::ylabel(ax1, "Energy");
+  auto ax2 = matplot::nexttile();
+  matplot::plot3(ax2, x_, y_, z_, "-o")->line_width(1.5);
+  matplot::xlabel(ax2, "x");
+  matplot::ylabel(ax2, "y");
+  matplot::zlabel(ax2, "z");
+  matplot::title(ax2, "Trajectory");
+  ax2->box_full(true);
+  matplot::show();
+  matplot::save("figure.svg");
+  return timestep_.size();
 }
 
 }  // namespace vpic
