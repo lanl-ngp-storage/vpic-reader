@@ -233,14 +233,13 @@ int QueryProcessor::GetTrajectory(uint64_t target, int first_step,
   matplot::xlabel(ax1, "Timestep");
   matplot::ylabel(ax1, "Energy");
   auto ax2 = matplot::nexttile();
-  matplot::plot3(ax2, x_, y_, z_, "-o")->line_width(1.5);
+  matplot::plot(ax2, x_, y_, "-o")->line_width(1.5);
   matplot::xlabel(ax2, "x");
   matplot::ylabel(ax2, "y");
-  matplot::zlabel(ax2, "z");
   matplot::title(ax2, "Trajectory");
-  ax2->box_full(true);
-  matplot::show();
+  //ax2->box_full(true);
   matplot::save("figure.svg");
+  matplot::save("figure.txt");
   return timestep_.size();
 }
 
