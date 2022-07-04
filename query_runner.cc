@@ -229,16 +229,17 @@ int QueryProcessor::GetTrajectory(uint64_t target, int first_step,
   f->size(1000, 500);
   matplot::tiledlayout(1, 2);
   auto ax1 = matplot::nexttile();
-  matplot::plot(ax1, timestep_, ke_, "-o")->line_width(1.5);
-  matplot::xlabel(ax1, "Timestep");
-  matplot::ylabel(ax1, "Energy");
+  matplot::plot(ax1, timestep_, ke_, "-or")->line_width(1.5);
+  matplot::xlabel(ax1, "timestep");
+  matplot::ylabel(ax1, "ke");
+  matplot::title(ax1, "Kinetic Energy");
   auto ax2 = matplot::nexttile();
-  matplot::plot(ax2, x_, y_, "-o")->line_width(1.5);
+  matplot::plot(ax2, x_, y_, "-or")->line_width(1.5);
   matplot::xlabel(ax2, "x");
   matplot::ylabel(ax2, "y");
   matplot::title(ax2, "Trajectory");
-  //ax2->box_full(true);
   matplot::save("figure.svg");
+  f->backend()->run_command("set terminal dumb size 160,40");
   matplot::save("figure.txt");
   return timestep_.size();
 }
