@@ -35,6 +35,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <getopt.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -245,8 +246,72 @@ int QueryProcessor::GetTrajectory(uint64_t target, int first_step,
 
 }  // namespace vpic
 
+static void usage(char* argv0, const char* msg) {
+  if (msg) fprintf(stderr, "%s: %s\n\n", argv0, msg);
+  fprintf(stderr, "===============\n");
+  fprintf(stderr, "Usage: %s [options] particle_dir\n\n", argv0);
+  fprintf(stderr, "-f\tint\t\t:  starting timestep\n");
+  fprintf(stderr, "-l\tint\t\t:  last timestep\n");
+  fprintf(stderr, "-s\tint\t\t:  timesteps to skip between two searches\n");
+  fprintf(stderr, "-e\telectron\t\t:  search electron particles\n");
+  fprintf(stderr, "-i\tion\t\t:  search ion particles\n");
+  fprintf(stderr, "-t\tid\t\t:  ID of the particle to search\n");
+  fprintf(stderr, "===============\n");
+  exit(EXIT_FAILURE);
+}
+
 int main(int argc, char* argv[]) {
-  vpic::QueryProcessor proc(argv[1], "iparticle", 1);
-  int r = proc.GetTrajectory(atoll(argv[2]), 0, 480, 24);
+  char* const argv0 = argv[0];
+  int first_timestep = 0, last_timestep = 0, interval = 1;
+  int electron = 1;
+  int ion = 0;
+  int64_t target = 0;
+  int c;
+
+  setlinebuf(stdout);
+  while ((c = getopt(argc, argv, "f:l:s:t:eih")) != -1) {
+    switch (c) {
+      case 'f':
+        first_timestep = atoi(optarg);
+        if (first_timestep < 0) usage(argv0, "invalid initial timestep ID");
+        break;
+      case 'l':
+        last_timestep = atoi(optarg);
+        if (last_timestep < 0) usage(argv0, "invalid last timestep ID");
+        break;
+      case 's':
+        interval = atoi(optarg);
+        if (interval < 1) usage(argv0, "invalid timestep interval");
+        break;
+      case 'e':
+        electron = 1;
+        ion = 0;
+        break;
+      case 'i':
+        electron = 0;
+        ion = 1;
+        break;
+      case 't':
+        target = atoll(optarg);
+        if (target < 0) usage(argv0, "invalid target ID");
+        break;
+      case 'h':
+      default:
+        usage(argv0, NULL);
+        break;
+    }
+  }
+
+  argc -= optind;
+  argv += optind;
+
+  if (argc < 1) {
+    usage(argv0, "must specify particle dir path");
+  }
+  printf("Search particle %d from %s within [%d,%d,%d]\n", int(target), argv[0],
+         first_timestep, last_timestep, interval);
+  vpic::QueryProcessor proc(argv[0], electron ? "eparticle" : "iparticle",
+                            1 /* TODO */);
+  int r = proc.GetTrajectory(target, first_timestep, last_timestep, interval);
   printf("Found %d steps\n", r);
 }
